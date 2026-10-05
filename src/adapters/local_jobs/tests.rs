@@ -192,6 +192,7 @@ fn request(action: Rc<ActionHandle>, inputs: &[PathBuf], parent: &Path) -> Actio
         inputs: inputs.to_vec(),
         parent: parent.to_path_buf(),
         source: InvocationSource::Selection,
+        choice: None,
         position: None,
     }
 }
@@ -273,7 +274,7 @@ fn passes_selected_paths_as_bytes_and_lists_them_for_scripts() {
         &script(
             ActionRuntime::Python,
             "main.py",
-            "#!/usr/bin/env python3\nfrom strata_actions import context\nctx = context()\nprint(repr(ctx.paths[0].encode('utf-8', 'surrogateescape')))\nprint(ctx.mode, ctx.source, ctx.count)\nprint(ctx.total)\n",
+            "#!/usr/bin/env python3\nimport json\nfrom strata_actions import context\nctx = context()\nprint(repr(ctx.paths[0].encode('utf-8', 'surrogateescape')))\nprint(ctx.mode, ctx.source, ctx.count)\nprint(ctx.total)\nprint(json.dumps(ctx.metadata.get('choice'), ensure_ascii=False))\n",
         ),
         ExecutionMode::WholeSelection,
     );
@@ -285,17 +286,28 @@ fn passes_selected_paths_as_bytes_and_lists_them_for_scripts() {
         .path()
         .join(OsString::from_vec(b"na\xffme with space.png".to_vec()));
     fs::write(&awkward, b"x").expect("fixture file");
-    let outcome = run(
-        &fixture.runner,
-        request(action, std::slice::from_ref(&awkward), fixture.path()),
-    );
-    let (code, _, log) = outcome.ended();
-    assert_eq!(code, Some(0), "{log}");
-    assert!(
-        log.contains("na\\xffme with space.png"),
-        "the helper preserves bytes that are not valid UTF-8: {log}"
-    );
-    assert!(log.contains("whole-selection selection 1"), "{log}");
+    for choice in [None, Some("PDF \"preview\"\n$(touch pwned) — WebP")] {
+        let mut invocation = request(
+            action.clone(),
+            std::slice::from_ref(&awkward),
+            fixture.path(),
+        );
+        invocation.choice = choice.map(str::to_owned);
+        let outcome = run(&fixture.runner, invocation);
+        let (code, _, log) = outcome.ended();
+        assert_eq!(code, Some(0), "{log}");
+        assert!(
+            log.contains("na\\xffme with space.png"),
+            "the helper preserves bytes that are not valid UTF-8: {log}"
+        );
+        assert!(log.contains("whole-selection selection 1"), "{log}");
+        let expected_choice = serde_json::to_string(&choice).expect("choice json");
+        assert!(
+            log.contains(&expected_choice),
+            "choice must reach the script: {log}"
+        );
+        assert!(!fixture.path().join("pwned").exists());
+    }
 }
 
 #[test]

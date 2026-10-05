@@ -107,6 +107,7 @@ impl ActionRunner for LocalActionRunner {
             inputs: request.inputs.clone(),
             parent: request.parent.clone(),
             source: request.source,
+            choice: request.choice.clone(),
             position: request.position,
             run_directory: run_directory.clone(),
         };
@@ -175,6 +176,7 @@ struct RunContext {
     inputs: Vec<PathBuf>,
     parent: PathBuf,
     source: InvocationSource,
+    choice: Option<String>,
     position: Option<(usize, usize)>,
     run_directory: PathBuf,
 }
@@ -460,7 +462,7 @@ fn invocation_context_json(action: &ActionHandle, context: &RunContext) -> Strin
         .position
         .map(|(position, total)| format!("{position},{total}"))
         .unwrap_or_default();
-    let fields = [
+    let mut fields = vec![
         ("version", "1".to_owned()),
         ("action_id", action.id().to_owned()),
         ("action_name", action.name().to_owned()),
@@ -475,6 +477,9 @@ fn invocation_context_json(action: &ActionHandle, context: &RunContext) -> Strin
             context.parent.to_string_lossy().into_owned(),
         ),
     ];
+    if let Some(choice) = &context.choice {
+        fields.push(("choice", choice.clone()));
+    }
     let body = fields
         .iter()
         .map(|(key, value)| format!("  \"{key}\": {}", json_string(value)))

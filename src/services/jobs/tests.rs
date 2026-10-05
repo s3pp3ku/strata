@@ -18,6 +18,7 @@ struct Recorded {
     inputs: Vec<PathBuf>,
     parent: PathBuf,
     source: InvocationSource,
+    choice: Option<String>,
     position: Option<(usize, usize)>,
 }
 
@@ -73,6 +74,7 @@ impl ActionRunner for FakeRunner {
             inputs: request.inputs.clone(),
             parent: request.parent.clone(),
             source: request.source,
+            choice: request.choice.clone(),
             position: request.position,
         });
         match self.behavior {
@@ -159,6 +161,7 @@ fn request(action: Rc<ActionHandle>, inputs: &[&str]) -> JobRequest {
         inputs: inputs.iter().map(PathBuf::from).collect(),
         parent: PathBuf::from("/tmp/parent"),
         source: InvocationSource::Selection,
+        choice: None,
     }
 }
 
@@ -209,22 +212,27 @@ fn runs_at_most_two_jobs_and_queues_the_rest() {
 fn per_item_jobs_iterate_one_input_at_a_time_and_report_positions() {
     let runner = FakeRunner::new(Behavior::Scripted);
     let service = JobService::new(runner.clone());
-    let id = service
-        .enqueue(request(
-            handle(
-                "a1",
-                "Resize",
-                ExecutionMode::PerItem,
-                ErrorPolicy::Continue,
-                "bash",
-            ),
-            &["/tmp/a.png", "/tmp/b.png", "/tmp/c.png"],
-        ))
-        .expect("job queues");
+    let mut invocation = request(
+        handle(
+            "a1",
+            "Resize",
+            ExecutionMode::PerItem,
+            ErrorPolicy::Continue,
+            "bash",
+        ),
+        &["/tmp/a.png", "/tmp/b.png", "/tmp/c.png"],
+    );
+    invocation.choice = Some("PDF".to_owned());
+    let id = service.enqueue(invocation).expect("job queues");
     settle(&service);
 
     let recorded = runner.recorded();
     assert_eq!(recorded.len(), 3);
+    assert!(
+        recorded
+            .iter()
+            .all(|run| run.choice.as_deref() == Some("PDF"))
+    );
     assert_eq!(
         recorded
             .iter()
@@ -249,18 +257,18 @@ fn per_item_jobs_iterate_one_input_at_a_time_and_report_positions() {
 fn whole_selection_jobs_run_once_with_every_input() {
     let runner = FakeRunner::new(Behavior::Exit(0));
     let service = JobService::new(runner.clone());
-    service
-        .enqueue(request(
-            handle(
-                "a1",
-                "Checksums",
-                ExecutionMode::WholeSelection,
-                ErrorPolicy::Continue,
-                "bash",
-            ),
-            &["/tmp/a.bin", "/tmp/b.bin"],
-        ))
-        .expect("job queues");
+    let mut invocation = request(
+        handle(
+            "a1",
+            "Checksums",
+            ExecutionMode::WholeSelection,
+            ErrorPolicy::Continue,
+            "bash",
+        ),
+        &["/tmp/a.bin", "/tmp/b.bin"],
+    );
+    invocation.choice = Some("WebP".to_owned());
+    service.enqueue(invocation).expect("job queues");
     settle(&service);
     let recorded = runner.recorded();
     assert_eq!(recorded.len(), 1);
@@ -269,6 +277,7 @@ fn whole_selection_jobs_run_once_with_every_input() {
         vec![PathBuf::from("/tmp/a.bin"), PathBuf::from("/tmp/b.bin")]
     );
     assert_eq!(recorded[0].position, None);
+    assert_eq!(recorded[0].choice.as_deref(), Some("WebP"));
 }
 
 #[test]
@@ -525,6 +534,7 @@ fn rejects_relative_paths_empty_selections_and_unavailable_actions() {
             inputs: vec![PathBuf::from("relative.txt")],
             parent: PathBuf::from("/tmp"),
             source: InvocationSource::Selection,
+            choice: None,
         }),
         Err(JobEnqueueError::NotAbsolute(PathBuf::from("relative.txt")))
     );

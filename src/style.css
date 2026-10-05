@@ -831,6 +831,12 @@ headerbar menubutton.header-action > button:focus-visible {
   padding: 2px 11px;
 }
 
+.action-dialog.action-choice-dialog,
+.action-choice-dialog .action-dialog-header,
+.action-choice-dialog .action-dialog-actions {
+  border-radius: 0;
+}
+
 .open-with-dialog {
   min-width: 480px;
   min-height: 460px;

@@ -22,6 +22,8 @@ pub const MAX_EXTENSIONS: usize = 64;
 pub const MAX_MIME_TYPES: usize = 64;
 pub const MAX_ARGUMENTS: usize = 32;
 pub const MAX_ARGUMENT_CHARS: usize = 512;
+pub const MAX_PROMPT_RULES: usize = 16;
+pub const MAX_PROMPT_CHOICES: usize = 32;
 pub const MAX_ITEMS_PER_ACTION: usize = 10_000;
 pub const MAX_SHEBANG_BYTES: usize = 256;
 
@@ -168,6 +170,35 @@ pub struct RunSpec {
     pub working_directory: WorkingDirectory,
     #[serde(default)]
     pub confirm: bool,
+    /// Optional native Strata choice dialogs shown before the script is queued.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prompts: Vec<ActionPrompt>,
+}
+
+/// A native choice dialog for one or more file extensions.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActionPrompt {
+    pub title: String,
+    pub label: String,
+    pub confirm_label: String,
+    pub extensions: Vec<String>,
+    pub options: Vec<String>,
+}
+
+impl ActionPrompt {
+    pub fn matches_paths(&self, paths: &[PathBuf]) -> bool {
+        !paths.is_empty()
+            && paths.iter().all(|path| {
+                path.file_name()
+                    .and_then(extension_bytes)
+                    .is_some_and(|extension| {
+                        self.extensions
+                            .iter()
+                            .any(|candidate| ascii_eq_ignore_case(candidate.as_bytes(), extension))
+                    })
+            })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -226,6 +257,7 @@ pub enum ActionError {
     PathsTokenInWholeSelection,
     InvalidExtension(String),
     InvalidMimeType(String),
+    InvalidPrompt,
     TooManyConditions(&'static str),
     InvalidItemRange,
     InvalidShebang,
@@ -318,6 +350,10 @@ impl fmt::Display for ActionError {
             Self::InvalidMimeType(mime) => write!(
                 formatter,
                 "“{mime}” is not a usable content type: write “image/png” or “image/*”"
+            ),
+            Self::InvalidPrompt => write!(
+                formatter,
+                "A prompt needs a title, label, supported extensions, and 2–{MAX_PROMPT_CHOICES} distinct options"
             ),
             Self::TooManyConditions(what) => {
                 write!(formatter, "At most {MAX_EXTENSIONS} {what} can be listed")
@@ -634,6 +670,40 @@ impl RunSpec {
     }
 
     fn validate(&self) -> Result<(), ActionError> {
+        if self.prompts.len() > MAX_PROMPT_RULES {
+            return Err(ActionError::InvalidPrompt);
+        }
+        let mut prompted_extensions: Vec<&str> = Vec::new();
+        for prompt in &self.prompts {
+            if !validate_text(&prompt.title, MAX_ACTION_NAME_CHARS)
+                || !validate_text(&prompt.label, MAX_ACTION_DESCRIPTION_CHARS)
+                || !validate_text(&prompt.confirm_label, MAX_ACTION_NAME_CHARS)
+                || prompt.extensions.is_empty()
+                || prompt.options.len() < 2
+                || prompt.options.len() > MAX_PROMPT_CHOICES
+            {
+                return Err(ActionError::InvalidPrompt);
+            }
+            for extension in &prompt.extensions {
+                if !valid_extension(extension)
+                    || prompted_extensions
+                        .iter()
+                        .any(|seen| seen.eq_ignore_ascii_case(extension))
+                {
+                    return Err(ActionError::InvalidPrompt);
+                }
+                prompted_extensions.push(extension);
+            }
+            for (index, option) in prompt.options.iter().enumerate() {
+                if !validate_text(option, MAX_ACTION_NAME_CHARS)
+                    || prompt.options[..index]
+                        .iter()
+                        .any(|previous| previous.eq_ignore_ascii_case(option))
+                {
+                    return Err(ActionError::InvalidPrompt);
+                }
+            }
+        }
         match self.runtime {
             ActionRuntime::Python | ActionRuntime::Bash => {
                 if self.program.is_some() {

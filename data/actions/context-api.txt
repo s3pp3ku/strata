@@ -17,7 +17,8 @@ Invocation details:
   ctx.source         "selection" or "background" (folder context menu).
   ctx.position       1-based per-item position in the job, or None.
   ctx.total          Total per-item invocations in the job, or None.
-  ctx.metadata       Raw JSON invocation metadata (dict).
+  ctx.metadata       Raw JSON invocation metadata (dict); native action prompts
+                     add the selected string as "choice".
 
 Reporting (these methods do not modify your files):
   ctx.log(message)   Write a line to the job's captured output.

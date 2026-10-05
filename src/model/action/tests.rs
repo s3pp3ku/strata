@@ -56,6 +56,26 @@ runtime = "bash"
 entrypoint = "run.sh"
 "#;
 
+const PROMPT_ACTION: &str = r#"
+schema_version = 1
+id = "convert-image"
+name = "Convert"
+
+[when]
+kinds = ["file"]
+
+[run]
+runtime = "python"
+entrypoint = "main.py"
+
+[[run.prompts]]
+title = "Convert image files"
+label = "Choose an output format"
+confirm_label = "Convert"
+extensions = ["jpg", "png"]
+options = ["PDF", "WebP"]
+"#;
+
 fn python_definition() -> ActionDefinition {
     ActionDefinition::parse(PYTHON_ACTION).expect("python action parses")
 }
@@ -90,6 +110,44 @@ fn parses_the_agreed_python_manifest() {
 }
 
 #[test]
+fn parses_and_matches_native_action_prompts() {
+    let definition = ActionDefinition::parse(PROMPT_ACTION).expect("prompt action parses");
+    let prompt = &definition.run.prompts[0];
+    assert_eq!(prompt.title, "Convert image files");
+    assert_eq!(prompt.confirm_label, "Convert");
+    assert!(!prompt.matches_paths(&[]));
+    assert!(!prompt.matches_paths(&[PathBuf::from("/tmp/no-extension")]));
+    assert!(prompt.matches_paths(&[PathBuf::from("/tmp/photo.JPG")]));
+    assert!(prompt.matches_paths(&[PathBuf::from("/tmp/one.jpg"), PathBuf::from("/tmp/two.png"),]));
+    assert!(
+        !prompt.matches_paths(&[PathBuf::from("/tmp/one.jpg"), PathBuf::from("/tmp/two.pdf"),])
+    );
+}
+
+#[test]
+fn rejects_ambiguous_or_unusable_prompt_rules() {
+    for (extensions, options) in [
+        (vec![], vec!["PDF", "WebP"]),
+        (vec![".jpg"], vec!["PDF", "WebP"]),
+        (vec!["jpg", "JPG"], vec!["PDF", "WebP"]),
+        (vec!["jpg"], vec!["PDF"]),
+        (vec!["jpg"], vec!["PDF", "pdf"]),
+    ] {
+        let mut definition = ActionDefinition::parse(PROMPT_ACTION).expect("prompt action parses");
+        let prompt = &mut definition.run.prompts[0];
+        prompt.extensions = extensions.into_iter().map(str::to_owned).collect();
+        prompt.options = options.into_iter().map(str::to_owned).collect();
+        assert_eq!(definition.validate(), Err(ActionError::InvalidPrompt));
+    }
+    let mut definition = ActionDefinition::parse(PROMPT_ACTION).expect("prompt action parses");
+    definition
+        .run
+        .prompts
+        .push(definition.run.prompts[0].clone());
+    assert_eq!(definition.validate(), Err(ActionError::InvalidPrompt));
+}
+
+#[test]
 fn defaults_keep_a_minimal_manifest_usable() {
     let definition = ActionDefinition::parse(BASH_ACTION).expect("minimal manifest parses");
     assert!(definition.enabled);
@@ -107,7 +165,11 @@ fn defaults_keep_a_minimal_manifest_usable() {
 
 #[test]
 fn a_generated_manifest_round_trips() {
-    for definition in [python_definition(), command_definition()] {
+    for definition in [
+        python_definition(),
+        command_definition(),
+        ActionDefinition::parse(PROMPT_ACTION).expect("prompt action parses"),
+    ] {
         let manifest = definition.to_manifest().expect("manifest renders");
         assert!(manifest.starts_with(MANIFEST_HEADER));
         let reparsed = ActionDefinition::parse(&manifest).expect("generated manifest parses");
