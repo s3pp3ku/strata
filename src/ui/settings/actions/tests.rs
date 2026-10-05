@@ -164,6 +164,14 @@ fn selection_rules_and_placement_round_trip_through_the_form() {
             definition.run.mode = ExecutionMode::PerItem;
             definition.run.on_error = ErrorPolicy::Stop;
             definition.run.confirm = true;
+            let prompts = vec![ActionPrompt {
+                title: "Convert images".to_owned(),
+                label: "Choose an output format".to_owned(),
+                confirm_label: "Convert".to_owned(),
+                extensions: vec!["png".to_owned(), "jpg".to_owned()],
+                options: vec!["PDF".to_owned(), "WebP".to_owned()],
+            }];
+            definition.run.prompts = prompts.clone();
             let form = form_for(definition, None);
             form.name.set_text("Resize images");
             let (read, _) = form.read().expect("a complete action saves");
@@ -181,6 +189,7 @@ fn selection_rules_and_placement_round_trip_through_the_form() {
             assert_eq!(read.run.mode, ExecutionMode::PerItem);
             assert_eq!(read.run.on_error, ErrorPolicy::Stop);
             assert!(read.run.confirm);
+            assert_eq!(read.run.prompts, prompts);
             assert_eq!(read.description.as_deref(), Some("Creates smaller copies"));
         },
     );

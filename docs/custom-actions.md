@@ -192,6 +192,33 @@ confirm = false
 | `[run].on_error` | `continue` (default) or `stop`, used by `per-item` runs. |
 | `[run].working_directory` | `parent` (default), `home`, or `action`. |
 | `[run].confirm` | Ask once before queuing the entire job. |
+| `[run].prompts` | Native Strata choice dialogs selected by matching every input extension. |
+
+Each `[[run.prompts]]` entry has a `title`, `label`, `confirm_label`, `extensions`,
+and `options`. Strata chooses the first rule whose extensions cover every selected
+file; otherwise it reports that the selection does not match a prompt rule. The
+selected option is available to Python scripts as `ctx.metadata["choice"]` and
+to other runtimes as the `choice` field in the JSON file at
+`$STRATA_ACTION_CONTEXT`. Cancelling the dialog does not queue the job. Prompt
+fields survive edits in Settings → Actions and are included in action exports;
+configure them in `action.toml`.
+
+For example, add this rule to an image conversion action's manifest:
+
+```toml
+[[run.prompts]]
+title = "Convert images"
+label = "Choose an output format for the selected images."
+confirm_label = "Convert"
+extensions = ["jpg", "jpeg", "png", "heic", "heif"]
+options = ["PDF", "PNG", "WebP"]
+```
+
+The script can then read `context().metadata["choice"]` and use the selected
+format for every input. Extension matching ignores ASCII case. Prompt rules
+must have nonempty extension lists with no overlaps, and 2–32 distinct options.
+Up to 16 prompt rules are supported. The chooser uses the active Strata theme
+and square outer corners.
 
 Validation is strict: unknown keys, unsupported versions, invalid ids, entrypoints
 that are not a plain file name, and argument tokens that do not match the execution

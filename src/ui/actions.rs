@@ -11,7 +11,7 @@ use gtk::{gio, prelude::*};
 use crate::{
     adapters::LocalActionStore,
     assets::icons,
-    model::{ActionInput, FOLDER_CONTENT_TYPE, FileEntry, InputKind, Location},
+    model::{ActionInput, ActionPrompt, FOLDER_CONTENT_TYPE, FileEntry, InputKind, Location},
     services::{ActionHandle, ActionRegistry, InvocationSource, JobRequest},
     ui::{
         controls::{ModalTone, focus_button, message_dialog_description, message_dialog_layout},
@@ -134,12 +134,31 @@ pub(crate) fn run_action(
     source: InvocationSource,
     closed: Option<Rc<dyn Fn()>>,
 ) {
-    let jobs = super::jobs::shared();
-    if action.definition.run.confirm {
-        confirm_and_run(anchor, action, paths, parent, source, closed);
+    if !action.definition.run.prompts.is_empty() {
+        let prompt = action
+            .definition
+            .run
+            .prompts
+            .iter()
+            .find(|prompt| prompt.matches_paths(&paths));
+        let Some(prompt) = prompt else {
+            show_error_dialog(
+                anchor,
+                "Cannot choose a conversion format",
+                "Select files from one supported format group.",
+            );
+            return;
+        };
+        let prompt = prompt.clone();
+        choose_and_run(anchor, action, prompt, paths, parent, source, closed);
         return;
     }
-    enqueue(anchor, &jobs, action, paths, parent, source);
+    let jobs = super::jobs::shared();
+    if action.definition.run.confirm {
+        confirm_and_run(anchor, action, paths, parent, source, None, closed);
+        return;
+    }
+    enqueue(anchor, &jobs, action, paths, parent, source, None);
 }
 
 fn enqueue(
@@ -149,12 +168,14 @@ fn enqueue(
     paths: Vec<PathBuf>,
     parent: PathBuf,
     source: InvocationSource,
+    choice: Option<String>,
 ) {
     match jobs.enqueue(JobRequest {
         action,
         inputs: paths,
         parent,
         source,
+        choice,
     }) {
         Ok(id) => super::jobs::present_for(anchor, id),
         Err(error) => show_error_dialog(anchor, "Unable to run action", &error.to_string()),
@@ -167,6 +188,7 @@ fn confirm_and_run(
     paths: Vec<PathBuf>,
     parent: PathBuf,
     source: InvocationSource,
+    choice: Option<String>,
     closed: Option<Rc<dyn Fn()>>,
 ) {
     let Some(ModalHost {
@@ -229,8 +251,98 @@ fn confirm_and_run(
         let action = action.clone();
         let paths = paths.clone();
         let parent = parent.clone();
+        let choice = choice.clone();
         dismiss_modal_layer_then(&run_layer, &run_overlay, run_root.as_ref(), move || {
-            enqueue(&anchor, &jobs, action, paths, parent, source);
+            enqueue(&anchor, &jobs, action, paths, parent, source, choice);
+        });
+    });
+}
+
+fn choose_and_run(
+    anchor: &impl IsA<gtk::Widget>,
+    action: Rc<ActionHandle>,
+    prompt: ActionPrompt,
+    paths: Vec<PathBuf>,
+    parent: PathBuf,
+    source: InvocationSource,
+    closed: Option<Rc<dyn Fn()>>,
+) {
+    let Some(ModalHost {
+        overlay,
+        blurred_root,
+    }) = ModalHost::blurred_for(anchor)
+    else {
+        show_error_dialog(
+            anchor,
+            "Unable to choose a format",
+            "Open the action from a Strata browser window.",
+        );
+        return;
+    };
+    let layout = message_dialog_layout(
+        action_icon(action.definition.icon.as_deref()),
+        &prompt.title,
+        &prompt.label,
+        &prompt.confirm_label,
+        ModalTone::Accent,
+    );
+    layout.content.add_css_class("action-choice-dialog");
+    let choices: Vec<&str> = prompt.options.iter().map(String::as_str).collect();
+    let selector = gtk::DropDown::from_strings(&choices);
+    selector.add_css_class("form-control");
+    selector.set_hexpand(true);
+    layout.body.append(&selector);
+    let content = layout.content;
+    let close = layout.close;
+    let cancel = layout.cancel;
+    let confirm = layout.confirm;
+    let layer = modal_layer(&content, &overlay, blurred_root.clone(), None);
+    if let Some(closed) = closed {
+        layer.connect_unrealize(move |_| {
+            let closed = closed.clone();
+            gtk::glib::idle_add_local_once(move || closed());
+        });
+    }
+    overlay.add_overlay(&layer);
+    focus_button(&confirm);
+    for button in [close, cancel] {
+        let dismiss_layer = layer.clone();
+        let dismiss_overlay = overlay.clone();
+        let dismiss_root = blurred_root.clone();
+        button.connect_clicked(move |_| {
+            dismiss_modal_layer(&dismiss_layer, &dismiss_overlay, dismiss_root.as_ref());
+        });
+    }
+    let run_layer = layer.clone();
+    let run_overlay = overlay;
+    let run_root = blurred_root;
+    let error_anchor = anchor.as_ref().clone();
+    confirm.connect_clicked(move |_| {
+        let Some(choice) = selector
+            .selected_item()
+            .and_downcast::<gtk::StringObject>()
+            .map(|item| item.string().to_string())
+        else {
+            return;
+        };
+        let anchor = error_anchor.clone();
+        let action = action.clone();
+        let paths = paths.clone();
+        let parent = parent.clone();
+        dismiss_modal_layer_then(&run_layer, &run_overlay, run_root.as_ref(), move || {
+            if action.definition.run.confirm {
+                confirm_and_run(&anchor, action, paths, parent, source, Some(choice), None);
+            } else {
+                enqueue(
+                    &anchor,
+                    &super::jobs::shared(),
+                    action,
+                    paths,
+                    parent,
+                    source,
+                    Some(choice),
+                );
+            }
         });
     });
 }

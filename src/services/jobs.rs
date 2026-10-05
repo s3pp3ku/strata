@@ -70,6 +70,8 @@ pub struct JobRequest {
     /// Folder the action was invoked from; also the default working directory.
     pub parent: PathBuf,
     pub source: InvocationSource,
+    /// Value selected in a native custom-action prompt, if the action defines one.
+    pub choice: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,6 +101,7 @@ pub struct ActionRunRequest {
     pub inputs: Vec<PathBuf>,
     pub parent: PathBuf,
     pub source: InvocationSource,
+    pub choice: Option<String>,
     /// 1-based position and total for a per-item invocation.
     pub position: Option<(usize, usize)>,
 }
@@ -242,6 +245,7 @@ struct Job {
     definition: ActionDefinition,
     parent: PathBuf,
     source: InvocationSource,
+    choice: Option<String>,
     inputs: Vec<PathBuf>,
     cursor: usize,
     status: JobStatus,
@@ -336,6 +340,7 @@ impl JobService {
             action: request.action,
             parent: request.parent,
             source: request.source,
+            choice: request.choice,
             inputs: request.inputs,
             cursor: 0,
             status: JobStatus::Queued,
@@ -458,6 +463,7 @@ impl JobService {
                 inputs: chunk.inputs,
                 parent: jobs[index].parent.clone(),
                 source: jobs[index].source,
+                choice: jobs[index].choice.clone(),
                 position: chunk.position,
             };
             let run = jobs[index].run;

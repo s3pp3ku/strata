@@ -20,6 +20,7 @@ fn setup_failure_finishes_the_job_and_releases_its_slot() {
             inputs,
             parent: fixture.path().to_owned(),
             source: InvocationSource::Selection,
+            choice: None,
         })
         .expect("queue large selection");
     let mut queued = Vec::new();
@@ -31,6 +32,7 @@ fn setup_failure_finishes_the_job_and_releases_its_slot() {
                     inputs: vec![fixture.path().join("input")],
                     parent: fixture.path().to_owned(),
                     source: InvocationSource::Selection,
+                    choice: None,
                 })
                 .expect("queue normal selection"),
         );

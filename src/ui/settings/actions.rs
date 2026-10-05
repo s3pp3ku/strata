@@ -8,8 +8,9 @@ use sourceview5::prelude::*;
 
 use crate::assets::{self, icons};
 use crate::model::{
-    ACTION_SCHEMA_VERSION, ActionConditions, ActionDefinition, ActionError, ActionRuntime,
-    ErrorPolicy, ExecutionMode, InputKind, MenuPlacement, RunSpec, WorkingDirectory, suggest_id,
+    ACTION_SCHEMA_VERSION, ActionConditions, ActionDefinition, ActionError, ActionPrompt,
+    ActionRuntime, ErrorPolicy, ExecutionMode, InputKind, MenuPlacement, RunSpec, WorkingDirectory,
+    suggest_id,
 };
 use crate::services::{
     ActionHandle, ActionLoadFailure, ActionRegistry, ActionScript, ActionWriteRequest,
@@ -583,6 +584,7 @@ struct EditorForm {
     mode: EditorMode,
     original_conditions: ActionConditions,
     original_arguments: Vec<String>,
+    original_prompts: Vec<ActionPrompt>,
     root: gtk::Box,
     error: gtk::Label,
     tabs: gtk::Notebook,
@@ -959,6 +961,7 @@ impl EditorForm {
             mode,
             original_conditions: definition.when.clone(),
             original_arguments: definition.run.args.clone(),
+            original_prompts: definition.run.prompts.clone(),
             root,
             error,
             tabs,
@@ -1180,6 +1183,7 @@ impl EditorForm {
                 on_error: self.selected_policy.get(),
                 working_directory: self.selected_directory.get(),
                 confirm: self.confirm.is_active(),
+                prompts: self.original_prompts.clone(),
             },
         };
         definition.validate().map_err(|error| {
@@ -1470,6 +1474,7 @@ fn draft_definition(runtime: ActionRuntime, mode: ExecutionMode) -> ActionDefini
             on_error: ErrorPolicy::Continue,
             working_directory: WorkingDirectory::Parent,
             confirm: false,
+            prompts: Vec::new(),
         },
     }
 }
